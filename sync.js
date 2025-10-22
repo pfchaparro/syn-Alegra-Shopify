@@ -1,4 +1,6 @@
 // sync.js
+require('dotenv').config();
+
 const Logger = require('./logger');
 const ImageHandler = require('./imageHandler');
 const AlegraClient = require('./alegraClient');
@@ -13,8 +15,8 @@ function getCustomFieldValue(customFields, fieldName) {
 }
 
 async function main() {
-    const logger = new Logger(config.logFile);
-    const imageHandler = new ImageHandler(config.tmpDir);
+    const logger = new Logger(config.logFile || './sync.log');
+    const imageHandler = new ImageHandler(config.tmpDir || './tmp_images');
     const alegra = new AlegraClient(logger);
     const shopify = new ShopifyClient(logger);
 
@@ -30,17 +32,36 @@ async function main() {
     const shopifySkus = await shopify.getAllProducts();
     const alegraProducts = await alegra.getAllActiveProducts();
 
-    for (const p of alegraProducts) {
-        // ✅ Solo productos activos
-        if (p.status !== 'active') continue;
+    // Paso 1: Recopilar SKUs activos en Alegra (con tienda_online: true)
+    const activeSkus = new Set();
+    const productsToSync = [];
 
-        // ✅ Solo si tienda_online = true
+    for (const p of alegraProducts) {
+        if (p.status !== 'active') continue;
         const tiendaOnline = getCustomFieldValue(p.customFields, 'tienda_online');
         if (tiendaOnline !== true) continue;
+        if (!p.reference?.trim()) continue;
 
-        // ✅ Debe tener SKU
-        const sku = p.reference?.trim();
-        if (!sku) continue;
+        const sku = p.reference.trim();
+        activeSkus.add(sku);
+        productsToSync.push(p);
+    }
+
+    // Paso 2: Despublicar productos en Shopify que ya NO están en activeSkus
+    for (const [sku, data] of Object.entries(shopifySkus)) {
+        if (!activeSkus.has(sku)) {
+            try {
+                await shopify.unpublishProduct(data.product_id);
+                logger.log(`🔽 Despublicado en Shopify: ${sku}`);
+            } catch (err) {
+                logger.log(`❌ Error al despublicar ${sku}: ${err.message}`, 'ERROR');
+            }
+        }
+    }
+
+    // Paso 3: Sincronizar productos activos
+    for (const p of productsToSync) {
+        const sku = p.reference.trim();
 
         // === CÁLCULO DE PRECIO CON IVA ===
         let rawPrice = 0;
@@ -57,11 +78,10 @@ async function main() {
 
         const ivaNum = parseFloat(ivaPercent);
         const precioFinal = Math.round(rawPrice * (1 + ivaNum / 100));
-
         const inventory = parseInt(p.inventory?.availableQuantity || 0);
         const imageUrl = p.images?.[0]?.url || null;
 
-        // === CONSTRUIR VARIANT ===
+        // === VARIANT ===
         const variantData = {
             sku,
             price: precioFinal.toString(),
@@ -73,7 +93,7 @@ async function main() {
             variantData.id = shopifySkus[sku].variant_id;
         }
 
-        // === DETERMINAR COLECCIONES (solo si ya existen en Shopify) ===
+        // === COLECCIONES ===
         const collections = [];
 
         // a) Por customFields.categorias
@@ -96,9 +116,20 @@ async function main() {
             }
         }
 
+        // d) Por IVA: solo 0% y 5% (en minúsculas, como en Shopify)
+        let ivaCollection = '';
+        if (ivaPercent === '0.00') {
+            ivaCollection = 'iva 0%';
+        } else if (ivaPercent === '5.00') {
+            ivaCollection = 'iva 5%';
+        }
+        if (ivaCollection && collectionsMap[ivaCollection]) {
+            collections.push(collectionsMap[ivaCollection]);
+        }
+
         const uniqueCollections = [...new Set(collections)];
 
-        // === CONSTRUIR PRODUCTO ===
+        // === PRODUCTO ===
         const productData = {
             product: {
                 title: (p.name || 'Producto sin nombre').trim(),
@@ -121,6 +152,8 @@ async function main() {
             let res;
             if (shopifySkus[sku]) {
                 res = await shopify.createOrUpdateProduct(productData, shopifySkus[sku].product_id);
+                // ✅ Publicar si estaba despublicado
+                await shopify.publishProduct(shopifySkus[sku].product_id);
             } else {
                 res = await shopify.createOrUpdateProduct(productData);
             }
@@ -128,12 +161,10 @@ async function main() {
             const productId = res.data.product.id;
             const invItemId = res.data.product.variants[0].inventory_item_id;
 
-            // Actualizar inventario
             if (invItemId) {
                 await shopify.updateInventory(locationId, invItemId, inventory);
             }
 
-            // Asignar a colecciones
             if (uniqueCollections.length > 0) {
                 await shopify.assignCollectionsToProduct(productId, uniqueCollections);
             }

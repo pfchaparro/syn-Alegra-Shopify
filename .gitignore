@@ -1,7 +1,5 @@
-# .gitignore
 .env
 node_modules/
-.env.local
-.env.development
-
-sync.log
+logs/
+tmp/
+*.log

@@ -5,10 +5,15 @@ const config = require('./config');
 class AlegraClient {
   constructor(logger) {
     this.logger = logger;
-    this.auth = Buffer.from(`${config.alegra.user}:${config.alegra.token}`).toString('base64');
-    // Estado para control de tasa
+
+    if (!config.alegra.user || !config.alegra.apiKey) {
+      throw new Error('Faltan ALEGRA_USER_EMAIL o ALEGRA_API_KEY en .env');
+    }
+
+    this.auth = Buffer.from(`${config.alegra.user}:${config.alegra.apiKey}`).toString('base64');
+
     this.remaining = 150;
-    this.resetTime = Date.now() + 60000; // +60 segundos por defecto
+    this.resetTime = Date.now() + 60000;
   }
 
   async getAllActiveProducts() {

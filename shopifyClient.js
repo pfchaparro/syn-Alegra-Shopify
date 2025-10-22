@@ -5,9 +5,17 @@ const config = require('./config');
 class ShopifyClient {
     constructor(logger) {
         this.logger = logger;
-        this.baseURL = `https://${config.shopify.domain}/admin/api/2025-01`;
+
+        if (!config.shopify.shopName) {
+            throw new Error('Falta SHOPIFY_SHOP_NAME en .env');
+        }
+        if (!config.shopify.accessToken) {
+            throw new Error('Falta SHOPIFY_ACCESS_TOKEN en .env');
+        }
+
+        this.baseURL = `https://${config.shopify.shopName}/admin/api/${config.shopify.apiVersion || '2024-10'}`;
         this.headers = {
-            'X-Shopify-Access-Token': config.shopify.token,
+            'X-Shopify-Access-Token': config.shopify.accessToken, // ✅ no "token"
             'Content-Type': 'application/json'
         };
     }
@@ -129,6 +137,11 @@ class ShopifyClient {
             const data = { collect: { product_id: productId, collection_id: collectionId } };
             await axios.post(`${this.baseURL}/collects.json`, data, { headers: this.headers });
         }
+    }
+
+    async unpublishProduct(productId) {
+        const data = { product: { id: productId, published: false } };
+        return axios.put(`${this.baseURL}/products/${productId}.json`, data, { headers: this.headers });
     }
 }
 
