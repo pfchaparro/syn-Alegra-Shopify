@@ -5,7 +5,18 @@ const Logger = require('./logger');
 const ImageHandler = require('./imageHandler');
 const AlegraClient = require('./alegraClient');
 const ShopifyClient = require('./shopifyClient');
+const { initOpenAI, generarDescripcionSEO } = require('./seoDescription');
 const config = require('./config');
+
+// === SEO (DESACTIVADO TEMPORALMENTE) ===
+// let generateDescriptionSEO = null;
+//if (config.OpenAI) {
+//    const { initOpenAI, generarDescripcionSEO } = require('./seoDescription');
+//    initOpenAI(config.OpenAI);
+//    generateDescriptionSEO = generarDescripcionSEO;
+//}
+
+
 
 // === FUNCION AUXILIAR: obtener valor de custom field ===
 function getCustomFieldValue(customFields, fieldName) {
@@ -78,7 +89,11 @@ async function main() {
 
         const ivaNum = parseFloat(ivaPercent);
         const precioFinal = Math.round(rawPrice * (1 + ivaNum / 100));
-        const inventory = parseInt(p.inventory?.availableQuantity || 0);
+
+        // === INVENTARIO: si ≤ 0, enviar 1 ===
+        const rawInventory = p.inventory?.availableQuantity || 0;
+        const inventory = rawInventory <= 0 ? 1 : Math.floor(rawInventory);
+
         const imageUrl = p.images?.[0]?.url || null;
 
         // === VARIANT ===
@@ -116,7 +131,7 @@ async function main() {
             }
         }
 
-        // d) Por IVA: solo 0% y 5% (en minúsculas, como en Shopify)
+        // d) Por IVA: solo 0% y 5% (en minúsculas)
         let ivaCollection = '';
         if (ivaPercent === '0.00') {
             ivaCollection = 'iva 0%';
@@ -129,10 +144,17 @@ async function main() {
 
         const uniqueCollections = [...new Set(collections)];
 
+        // === DESCRIPCIÓN SEO (opcional) ===
+        let bodyHtml = '';
+        // if (generateDescriptionSEO) {
+        //     bodyHtml = await generateDescriptionSEO(p) || '';
+        // }
+
         // === PRODUCTO ===
         const productData = {
             product: {
-                title: (p.name || 'Producto sin nombre').trim(),
+                title: p.name.trim(),
+                body_html: bodyHtml,
                 variants: [variantData],
                 published: true,
                 published_scope: 'web'

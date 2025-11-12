@@ -3,6 +3,7 @@
 module.exports = {
   logFile: process.env.LOG_FILE || './logs/app.log',
   tmpDir: process.env.TMP_DIR || './tmp',
+  OpenAI: process.env.OPENAI_API_KEY,
 
   shopify: {
     shopName: process.env.SHOPIFY_SHOP_NAME,

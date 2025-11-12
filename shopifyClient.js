@@ -143,6 +143,11 @@ class ShopifyClient {
         const data = { product: { id: productId, published: false } };
         return axios.put(`${this.baseURL}/products/${productId}.json`, data, { headers: this.headers });
     }
+
+    async publishProduct(productId) {
+        const data = { product: { id: productId, published: true } };
+        return axios.put(`${this.baseURL}/products/${productId}.json`, data, { headers: this.headers });
+    }
 }
 
 module.exports = ShopifyClient;
